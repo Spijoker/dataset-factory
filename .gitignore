@@ -73,6 +73,7 @@ data/dpo-output/
 useless/
 test/
 data/
+TMP/
 # Streamlit (keep config but ignore secrets)
 .streamlit/secrets.toml
 
