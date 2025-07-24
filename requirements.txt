@@ -1,0 +1,17 @@
+# 基础依赖
+ollama>=0.1.5
+python-dotenv>=1.0.0
+tqdm>=4.66.1
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Web界面
+streamlit>=1.28.0
+
+# 数据处理
+json5>=0.9.14
+openai>=1.0.0
+
+# GUI文件选择（用于Web界面的文件选择功能）
+tkinter; sys_platform == "linux"
+# 注意：Windows和macOS通常自带tkinter
