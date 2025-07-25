@@ -119,10 +119,11 @@ def init_session_state():
     if 'selected_input_path' not in st.session_state:
         st.session_state.selected_input_path = None
     if 'selected_output_path' not in st.session_state:
-        # 使用TMP目录作为默认输出路径
+        # 使用TMP目录下的base_output文件夹作为默认输出路径
         from src.file_upload_manager import FileUploadManager
         file_manager = FileUploadManager()
-        st.session_state.selected_output_path = file_manager.get_tmp_dir_path()
+        base_output_path = os.path.join(file_manager.get_tmp_dir_path(), "base_output")
+        st.session_state.selected_output_path = base_output_path
     if 'preview_file_path' not in st.session_state:
         st.session_state.preview_file_path = None
     if 'dataset_type' not in st.session_state:
@@ -182,8 +183,13 @@ def select_output_folder():
         root.withdraw()  # 隐藏主窗口
         root.attributes('-topmost', True)  # 置顶显示
         
+        # 默认打开TMP目录
+        from src.file_upload_manager import file_upload_manager
+        initial_dir = file_upload_manager.get_tmp_dir_path()
+        
         selected_path = filedialog.askdirectory(
             title="选择输出文件夹",
+            initialdir=initial_dir,
             parent=root
         )
         
@@ -598,18 +604,42 @@ def show_dataset_generation():
         st.markdown("### 📤 输出设置")
         
         # 输出文件夹选择
+        st.markdown("**📁 输出文件夹**")
+        
+        # 显示当前选择的输出路径信息
+        if st.session_state.selected_output_path:
+            folder_name = os.path.basename(st.session_state.selected_output_path)
+            if not folder_name:  # 如果是根目录
+                folder_name = "根目录"
+            
+            # 检查文件夹是否存在
+            folder_exists = os.path.exists(st.session_state.selected_output_path)
+            
+            if folder_exists:
+                st.success(f"✅ 当前使用: {folder_name}")
+            else:
+                st.warning(f"⚠️ 当前使用: {folder_name} (文件夹不存在，将自动创建)")
+            
+            # 显示完整路径
+            st.caption(f"完整路径: {st.session_state.selected_output_path}")
+        else:
+            st.info("请选择或输入输出文件夹路径")
+        
+        # 输入框和浏览按钮
         col1, col2 = st.columns([3, 1])
         
         with col1:
             output_folder = st.text_input(
-                "输出文件夹",
+                "编辑路径",
                 value=st.session_state.selected_output_path,
-                help="生成的数据集将保存到此文件夹，默认为TMP目录",
-                key="output_folder_input"
+                help="生成的数据集将保存到此文件夹，默认为TMP/base_output目录",
+                key="output_folder_input",
+                placeholder="输入文件夹路径..."
             )
             # 只有当用户手动修改了输入框内容时才更新session state
             if output_folder != st.session_state.selected_output_path:
                 st.session_state.selected_output_path = output_folder
+                st.rerun()  # 强制刷新页面以更新提示状态
         
         with col2:
             if st.button("📁 浏览", use_container_width=True, key="browse_output"):
@@ -1179,7 +1209,7 @@ def show_dataset_generation():
         
         with st.expander("🚀 快速开始", expanded=True):
             st.markdown("""
-            1. **准备数据集**: 将JSON格式的数据集文件放在项目根目录或`data/input/`目录下
+            1. **上传数据集**: 将JSON格式的alpaca数据集文件上传到TMP目录下
             2. **选择数据集**: 在左侧边栏选择要使用的数据集文件
             3. **配置模型**: 选择模型类型和名称
             4. **选择数据集类型**: 
@@ -1269,10 +1299,15 @@ def show_file_management():
                             success_count += 1
                 
                 if success_count > 0:
-                    st.success(f"✅ 成功上传 {success_count} 个文件到 '{selected_folder}'！")
+                    st.session_state.upload_success_msg = f"✅ 成功上传 {success_count} 个文件到 '{selected_folder}'！"
                     st.rerun()
                 else:
                     st.error("❌ 文件上传失败")
+        
+        # 显示上传成功消息
+        if hasattr(st.session_state, 'upload_success_msg'):
+            st.success(st.session_state.upload_success_msg)
+            del st.session_state.upload_success_msg
     
     st.divider()
     
@@ -1289,12 +1324,17 @@ def show_file_management():
             if st.button("创建", key="create_folder_btn", use_container_width=True):
                 if new_folder_name.strip():
                     if file_manager.create_folder(new_folder_name.strip()):
-                        st.success(f"文件夹 '{new_folder_name}' 创建成功！")
+                        st.session_state.folder_success_msg = f"✅ 文件夹 '{new_folder_name}' 创建成功！"
                         st.rerun()
                     else:
-                        st.error("文件夹创建失败")
+                        st.error("❌ 文件夹创建失败")
                 else:
-                    st.warning("请输入文件夹名称")
+                    st.warning("⚠️ 请输入文件夹名称")
+            
+            # 显示创建成功消息
+            if hasattr(st.session_state, 'folder_success_msg'):
+                st.success(st.session_state.folder_success_msg)
+                del st.session_state.folder_success_msg
     
     with toolbar_col2:
         # 文件移动
@@ -1343,10 +1383,15 @@ def show_file_management():
                                         success_count += 1
                         
                         if success_count > 0:
-                            st.success(f"✅ 成功移动 {success_count} 个文件！")
+                            st.session_state.move_success_msg = f"✅ 成功移动 {success_count} 个文件！"
                             st.rerun()
             else:
                 st.info(f"文件夹 '{source_folder}' 中暂无文件")
+            
+            # 显示移动成功消息
+            if hasattr(st.session_state, 'move_success_msg'):
+                st.success(st.session_state.move_success_msg)
+                del st.session_state.move_success_msg
     
     with toolbar_col3:
         # 统计信息
@@ -1356,21 +1401,50 @@ def show_file_management():
     
     with toolbar_col4:
         # 清空操作
-        if st.button("🗑️ 清空所有", key="clear_all_files", type="secondary", use_container_width=True):
-            if st.session_state.get('confirm_clear', False):
-                if file_manager.clear_tmp_dir():
-                    st.success("✅ 所有文件已清空！")
+        # 显示确认清空的警告信息
+        if st.session_state.get('confirm_clear', False):
+            st.warning("⚠️ 确认清空所有文件？")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ 确认", key="confirm_clear_btn", type="primary", use_container_width=True):
+                    if file_manager.clear_tmp_dir():
+                        st.session_state.clear_success_msg = "✅ 所有文件已清空！"
+                        st.session_state.confirm_clear = False
+                        st.rerun()
+            with col2:
+                if st.button("❌ 取消", key="cancel_clear_btn", use_container_width=True):
                     st.session_state.confirm_clear = False
                     st.rerun()
-            else:
+        else:
+            if st.button("🗑️ 清空所有", key="clear_all_files", type="secondary", use_container_width=True):
                 st.session_state.confirm_clear = True
-                st.warning("⚠️ 再次点击确认清空所有文件")
                 st.rerun()
     
     st.markdown("---")
     
     # 文件浏览区域 - 类似云盘的网格布局
     st.markdown("### 📂 文件浏览")
+    
+    # 显示操作成功消息
+    if hasattr(st.session_state, 'clear_success_msg'):
+        st.success(st.session_state.clear_success_msg)
+        del st.session_state.clear_success_msg
+    
+    if hasattr(st.session_state, 'delete_folder_success_msg'):
+        st.success(st.session_state.delete_folder_success_msg)
+        del st.session_state.delete_folder_success_msg
+    
+    if hasattr(st.session_state, 'delete_file_success_msg'):
+        st.success(st.session_state.delete_file_success_msg)
+        del st.session_state.delete_file_success_msg
+    
+    if hasattr(st.session_state, 'batch_delete_folder_success_msg'):
+        st.success(st.session_state.batch_delete_folder_success_msg)
+        del st.session_state.batch_delete_folder_success_msg
+    
+    if hasattr(st.session_state, 'batch_delete_success_msg'):
+        st.success(st.session_state.batch_delete_success_msg)
+        del st.session_state.batch_delete_success_msg
     
     # 面包屑导航
     breadcrumb_col1, breadcrumb_col2 = st.columns([10, 1])
@@ -1400,7 +1474,42 @@ def show_file_management():
     if st.session_state.current_folder is None:
         # 显示文件夹
         if folders:
-            st.markdown("#### 📁 文件夹")
+            # 文件夹标题和批量操作
+            folder_header_col1, folder_header_col2 = st.columns([3, 1])
+            with folder_header_col1:
+                st.markdown("#### 📁 文件夹")
+            with folder_header_col2:
+                # 批量删除文件夹
+                if st.button("🗑️ 批量删除", key="batch_delete_folders_btn", help="批量删除选中的文件夹"):
+                    st.session_state.show_folder_selection = not st.session_state.get('show_folder_selection', False)
+                    st.rerun()
+            
+            # 如果开启了文件夹选择模式
+            if st.session_state.get('show_folder_selection', False):
+                st.info("📋 选择要删除的文件夹，然后点击删除按钮")
+                selected_folders = st.multiselect(
+                    "选择文件夹",
+                    folders,
+                    key="selected_folders_for_delete"
+                )
+                
+                if selected_folders:
+                    delete_col1, delete_col2, delete_col3 = st.columns([1, 1, 2])
+                    with delete_col1:
+                        if st.button("🗑️ 删除选中", key="confirm_batch_delete_folders", type="primary"):
+                            success_count = 0
+                            for folder in selected_folders:
+                                if file_manager.delete_folder(folder):
+                                    success_count += 1
+                            st.session_state.batch_delete_folder_success_msg = f"✅ 成功删除 {success_count} 个文件夹！"
+                            st.session_state.show_folder_selection = False
+                            st.rerun()
+                    with delete_col2:
+                        if st.button("❌ 取消", key="cancel_batch_delete_folders"):
+                            st.session_state.show_folder_selection = False
+                            st.rerun()
+                st.markdown("---")
+            
             folder_cols = st.columns(4)  # 每行4个文件夹
             for idx, folder in enumerate(folders):
                 with folder_cols[idx % 4]:
@@ -1437,9 +1546,29 @@ def show_file_management():
                         st.caption(f"{folder_file_count} 个文件")
                         
                         # 删除文件夹按钮
-                        if st.button("🗑️", key=f"delete_folder_{folder}", help="删除文件夹"):
-                            if file_manager.delete_folder(folder):
-                                st.success(f"文件夹 '{folder}' 删除成功！")
+                        delete_folder_key = f"delete_folder_{folder}"
+                        confirm_delete_folder_key = f"confirm_delete_folder_{folder}"
+                        
+                        # 显示确认删除的警告信息和按钮
+                        if st.session_state.get(confirm_delete_folder_key, False):
+                            st.warning(f"⚠️ 确认删除文件夹 '{folder}'？")
+                            del_col1, del_col2 = st.columns(2)
+                            with del_col1:
+                                if st.button("✅ 确认", key=f"confirm_del_folder_{folder}", type="primary", use_container_width=True):
+                                    if file_manager.delete_folder(folder):
+                                        st.session_state.delete_folder_success_msg = f"✅ 文件夹 '{folder}' 删除成功！"
+                                        st.session_state[confirm_delete_folder_key] = False
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ 文件夹 '{folder}' 删除失败！")
+                                        st.session_state[confirm_delete_folder_key] = False
+                            with del_col2:
+                                if st.button("❌ 取消", key=f"cancel_del_folder_{folder}", use_container_width=True):
+                                    st.session_state[confirm_delete_folder_key] = False
+                                    st.rerun()
+                        else:
+                            if st.button("🗑️", key=delete_folder_key, help="删除文件夹"):
+                                st.session_state[confirm_delete_folder_key] = True
                                 st.rerun()
             
             st.markdown("---")
@@ -1447,7 +1576,45 @@ def show_file_management():
     # 显示当前目录的文件
     if current_files:
         current_location = "根目录" if st.session_state.current_folder is None else st.session_state.current_folder
-        st.markdown(f"#### 📄 文件 ({len(current_files)} 个)")
+        
+        # 文件标题和批量操作
+        file_header_col1, file_header_col2 = st.columns([3, 1])
+        with file_header_col1:
+            st.markdown(f"#### 📄 文件 ({len(current_files)} 个)")
+        with file_header_col2:
+            # 批量删除文件
+            if st.button("🗑️ 批量删除", key="batch_delete_files_btn", help="批量删除选中的文件"):
+                st.session_state.show_file_selection = not st.session_state.get('show_file_selection', False)
+                st.rerun()
+        
+        # 如果开启了文件选择模式
+        if st.session_state.get('show_file_selection', False):
+            st.info("📋 选择要删除的文件，然后点击删除按钮")
+            file_names = [os.path.basename(f) for f in current_files]
+            selected_files = st.multiselect(
+                "选择文件",
+                file_names,
+                key="selected_files_for_delete"
+            )
+            
+            if selected_files:
+                delete_col1, delete_col2, delete_col3 = st.columns([1, 1, 2])
+                with delete_col1:
+                    if st.button("🗑️ 删除选中", key="confirm_batch_delete_files", type="primary"):
+                        success_count = 0
+                        for file_name in selected_files:
+                            # 找到完整路径
+                            full_path = next((f for f in current_files if os.path.basename(f) == file_name), None)
+                            if full_path and file_manager.delete_tmp_file(full_path):
+                                success_count += 1
+                        st.session_state.batch_delete_success_msg = f"✅ 成功删除 {success_count} 个文件！"
+                        st.session_state.show_file_selection = False
+                        st.rerun()
+                with delete_col2:
+                    if st.button("❌ 取消", key="cancel_batch_delete_files"):
+                        st.session_state.show_file_selection = False
+                        st.rerun()
+            st.markdown("---")
         
         # 使用网格布局显示文件
         file_cols = st.columns(4)  # 每行4个文件
@@ -1477,9 +1644,28 @@ def show_file_management():
                     
                     # 删除文件按钮
                     delete_key = f"delete_{st.session_state.current_folder or 'root'}_{file_name}"
-                    if st.button("🗑️", key=delete_key, help="删除文件"):
-                        if file_manager.delete_file(file_path):
-                            st.success(f"文件 '{file_name}' 删除成功！")
+                    confirm_delete_key = f"confirm_delete_{st.session_state.current_folder or 'root'}_{file_name}"
+                    
+                    # 显示确认删除的警告信息和按钮
+                    if st.session_state.get(confirm_delete_key, False):
+                        st.warning(f"⚠️ 确认删除文件 '{file_name}'？")
+                        del_col1, del_col2 = st.columns(2)
+                        with del_col1:
+                            if st.button("✅ 确认", key=f"confirm_del_file_{file_name}_{idx}", type="primary", use_container_width=True):
+                                if file_manager.delete_tmp_file(file_path):
+                                    st.session_state.delete_file_success_msg = f"✅ 文件 '{file_name}' 删除成功！"
+                                    st.session_state[confirm_delete_key] = False
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ 文件 '{file_name}' 删除失败！")
+                                    st.session_state[confirm_delete_key] = False
+                        with del_col2:
+                            if st.button("❌ 取消", key=f"cancel_del_file_{file_name}_{idx}", use_container_width=True):
+                                st.session_state[confirm_delete_key] = False
+                                st.rerun()
+                    else:
+                        if st.button("🗑️", key=delete_key, help="删除文件"):
+                            st.session_state[confirm_delete_key] = True
                             st.rerun()
     
     # 如果当前目录没有任何内容
