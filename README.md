@@ -28,9 +28,14 @@ dataset-factory/
 ├── README.md                 # 项目说明文档
 ├── requirements.txt          # 项目依赖
 ├── app.py                    # Web界面主程序
-├── run_app.py                # Web界面启动脚本
-├── config.py                 # 配置文件
-├── prompt_config.py          # 提示词配置文件
+├── start.py                  # 快速启动脚本
+├── config/                   # 配置文件目录
+│   ├── config.py             # 主配置文件
+│   └── prompt_config.py      # 提示词配置文件
+├── scripts/                  # 脚本文件目录
+│   ├── run_app.py            # Web界面启动脚本
+│   ├── stop_app.py           # 应用停止脚本
+│   └── stop_app.bat          # Windows批处理停止脚本
 ├── .streamlit/               # Streamlit配置
 │   └── config.toml           # Streamlit配置文件
 └── src/                      # 源代码
@@ -38,6 +43,7 @@ dataset-factory/
     ├── data_loader.py        # 数据加载模块
     ├── data_generator.py     # 数据生成模块
     ├── model_caller.py       # 模型调用模块
+    ├── file_upload_manager.py # 文件上传管理模块
     ├── utils.py              # 工具函数
     ├── prompt_config.py      # 提示词配置管理
     └── dataset_generators/   # 模块化生成器
@@ -58,12 +64,18 @@ pip install -r requirements.txt
 
 ### 2. 启动Web界面
 
-**方式一：使用启动脚本（推荐）**
+**方式一：使用快速启动脚本（推荐）**
 ```bash
-python run_app.py
+python start.py
 ```
 
-**方式二：直接启动Streamlit**
+**方式二：使用完整启动脚本**
+```bash
+python scripts/run_app.py
+```
+或者在Windows系统中双击 `scripts/run_app.bat`
+
+**方式三：直接启动Streamlit**
 ```bash
 streamlit run app.py
 ```
@@ -118,10 +130,10 @@ streamlit run app.py
 # 程序会自动清理所有相关进程
 
 # 方式2: 使用Python关闭脚本
-python stop_app.py
+python scripts/stop_app.py
 
 # 方式3: Windows用户可直接双击
-stop_app.bat
+scripts/stop_app.bat
 ```
 
 **注意**: 新版本已优化进程管理，解决了之前需要手动关闭浏览器页面的问题。

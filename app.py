@@ -15,7 +15,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 # 导入配置和模块
-import config
+from config import config
 from src.data_loader import DataLoader
 from src.model_caller import ModelCallerFactory
 from src.data_generator import DataGenerator
@@ -23,7 +23,7 @@ from src.dataset_generators.sft_generator import SFTDatasetGenerator
 from src.dataset_generators.dpo_generator import DPODatasetGenerator
 from src.dataset_generators.sft_to_dpo_converter import SFTToDPOConverter
 from src.utils import setup_directories, get_timestamp, analyze_dataset, split_dataset
-from src.prompt_config import prompt_manager
+from config.prompt_config import prompt_manager
 
 # 页面配置
 st.set_page_config(

@@ -77,8 +77,8 @@ def main():
     # 注册退出时的清理函数
     atexit.register(cleanup_processes)
     
-    # 获取当前脚本所在目录
-    current_dir = Path(__file__).parent
+    # 获取当前脚本所在目录的上级目录（项目根目录）
+    current_dir = Path(__file__).parent.parent
     app_file = current_dir / "app.py"
     
     # 检查app.py是否存在
