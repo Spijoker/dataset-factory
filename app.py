@@ -19,9 +19,11 @@ from config import config
 from src.data_loader import DataLoader
 from src.model_caller import ModelCallerFactory
 from src.data_generator import DataGenerator
+from src.optimized_data_generator import OptimizedDataGenerator
 from src.dataset_generators.sft_generator import SFTDatasetGenerator
 from src.dataset_generators.dpo_generator import DPODatasetGenerator
 from src.dataset_generators.sft_to_dpo_converter import SFTToDPOConverter
+from src.dataset_generators.optimized_sft_to_dpo_converter import OptimizedSFTToDPOConverter
 from src.utils import setup_directories, get_timestamp, analyze_dataset, split_dataset
 from config.prompt_config import prompt_manager
 
@@ -296,8 +298,24 @@ def main():
 def show_prompt_config():
     """显示提示词配置界面"""
     st.markdown("## ⚙️ 提示词配置管理")
-    st.markdown("在这里可以查看和编辑用于生成数据集的提示词模板")
+    st.markdown("在这里可以查看和编辑用于生成数据集的提示词模板，支持版本管理")
     
+    # 主要功能选择
+    config_mode = st.selectbox(
+        "选择功能模式",
+        ["📝 编辑提示词", "📚 版本管理", "📤 导入导出"],
+        help="选择要使用的功能"
+    )
+    
+    if config_mode == "📝 编辑提示词":
+        show_prompt_editor()
+    elif config_mode == "📚 版本管理":
+        show_version_management()
+    else:
+        show_import_export()
+
+def show_prompt_editor():
+    """显示提示词编辑器"""
     # 提示词类型选择
     prompt_type = st.selectbox(
         "选择提示词类型",
@@ -311,6 +329,175 @@ def show_prompt_config():
         show_dpo_prompts()
     else:
         show_sft_to_dpo_prompts()
+
+def show_version_management():
+    """显示版本管理界面"""
+    st.markdown("### 📚 提示词版本管理")
+    
+    # 选择提示词类型和ID
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        prompt_type_map = {"SFT生成": "sft", "DPO生成": "dpo", "SFT转DPO": "sft_to_dpo"}
+        prompt_type_display = st.selectbox(
+            "提示词类型",
+            list(prompt_type_map.keys()),
+            help="选择要管理版本的提示词类型"
+        )
+        prompt_type = prompt_type_map[prompt_type_display]
+    
+    with col2:
+        # 获取该类型下的所有提示词ID
+        prompts = prompt_manager.get_prompts_by_type(prompt_type)
+        prompt_ids = list(prompts.keys()) if prompts else []
+        
+        if prompt_ids:
+            prompt_id = st.selectbox(
+                "提示词ID",
+                prompt_ids,
+                help="选择要管理版本的具体提示词"
+            )
+        else:
+            st.warning("该类型下没有可用的提示词")
+            return
+    
+    # 显示版本历史
+    versions = prompt_manager.get_prompt_versions(prompt_type, prompt_id)
+    
+    if versions:
+        st.markdown(f"### 📋 {prompt_id} 的版本历史")
+        
+        for i, version in enumerate(versions):
+            with st.expander(f"版本 {version['version_id']} - {version['datetime']}", expanded=(i==0)):
+                col_info, col_actions = st.columns([3, 1])
+                
+                with col_info:
+                    st.write(f"**创建时间**: {version['datetime']}")
+                    st.write(f"**描述**: {version.get('description', '无描述')}")
+                    st.text_area(
+                        "模板内容",
+                        value=version['template'],
+                        height=150,
+                        disabled=True,
+                        key=f"version_template_{version['version_id']}"
+                    )
+                
+                with col_actions:
+                    st.markdown("**操作**")
+                    
+                    if st.button(
+                        "🔄 恢复此版本",
+                        key=f"restore_{version['version_id']}",
+                        use_container_width=True
+                    ):
+                        if prompt_manager.restore_prompt_version(prompt_type, prompt_id, version['version_id']):
+                            st.success("✅ 版本恢复成功！")
+                            st.rerun()
+                        else:
+                            st.error("❌ 版本恢复失败")
+                    
+                    if st.button(
+                        "🗑️ 删除版本",
+                        key=f"delete_{version['version_id']}",
+                        use_container_width=True
+                    ):
+                        if prompt_manager.delete_prompt_version(prompt_type, prompt_id, version['version_id']):
+                            st.success("✅ 版本删除成功！")
+                            st.rerun()
+                        else:
+                            st.error("❌ 版本删除失败")
+    else:
+        st.info("该提示词暂无版本历史")
+
+def show_import_export():
+    """显示导入导出界面"""
+    st.markdown("### 📤 提示词导入导出")
+    
+    tab1, tab2 = st.tabs(["📤 导出", "📥 导入"])
+    
+    with tab1:
+        st.markdown("#### 导出提示词模板")
+        
+        # 选择要导出的提示词
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            prompt_type_map = {"SFT生成": "sft", "DPO生成": "dpo", "SFT转DPO": "sft_to_dpo"}
+            prompt_type_display = st.selectbox(
+                "提示词类型",
+                list(prompt_type_map.keys()),
+                help="选择要导出的提示词类型",
+                key="export_type"
+            )
+            prompt_type = prompt_type_map[prompt_type_display]
+        
+        with col2:
+            prompts = prompt_manager.get_prompts_by_type(prompt_type)
+            prompt_ids = list(prompts.keys()) if prompts else []
+            
+            if prompt_ids:
+                prompt_id = st.selectbox(
+                    "提示词ID",
+                    prompt_ids,
+                    help="选择要导出的具体提示词",
+                    key="export_id"
+                )
+            else:
+                st.warning("该类型下没有可用的提示词")
+                return
+        
+        if st.button("📤 导出模板", type="primary"):
+            template_data = prompt_manager.export_prompt_template(prompt_type, prompt_id)
+            if template_data:
+                # 生成下载链接
+                import json
+                json_str = json.dumps(template_data, ensure_ascii=False, indent=2)
+                st.download_button(
+                    label="💾 下载模板文件",
+                    data=json_str,
+                    file_name=f"{prompt_type}_{prompt_id}_template.json",
+                    mime="application/json"
+                )
+                st.success("✅ 模板导出成功！")
+            else:
+                st.error("❌ 模板导出失败")
+    
+    with tab2:
+        st.markdown("#### 导入提示词模板")
+        
+        uploaded_file = st.file_uploader(
+            "选择模板文件",
+            type=["json"],
+            help="上传之前导出的提示词模板文件"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                import json
+                template_data = json.load(uploaded_file)
+                
+                # 显示模板信息
+                st.markdown("**模板信息预览:**")
+                st.write(f"- **类型**: {template_data.get('prompt_type', 'N/A')}")
+                st.write(f"- **ID**: {template_data.get('prompt_id', 'N/A')}")
+                st.write(f"- **导出时间**: {template_data.get('export_time', 'N/A')}")
+                
+                current_info = template_data.get('current', {})
+                st.write(f"- **名称**: {current_info.get('name', 'N/A')}")
+                st.write(f"- **描述**: {current_info.get('description', 'N/A')}")
+                
+                versions = template_data.get('versions', [])
+                st.write(f"- **版本数量**: {len(versions)}")
+                
+                if st.button("📥 导入模板", type="primary"):
+                    if prompt_manager.import_prompt_template(template_data):
+                        st.success("✅ 模板导入成功！")
+                        st.rerun()
+                    else:
+                        st.error("❌ 模板导入失败")
+                        
+            except Exception as e:
+                st.error(f"❌ 文件格式错误: {str(e)}")
 
 def show_sft_prompts():
     """显示SFT提示词配置"""
@@ -778,36 +965,95 @@ def show_dataset_generation():
                 except Exception as e:
                     st.warning(f"无法读取文件夹内容: {str(e)}")
         
-        # 生成参数
+        # 生成参数（SFT转DPO模式不显示某些参数）
         st.markdown("### 📊 生成参数")
-        num_samples = st.number_input(
-            "生成样本数量",
-            min_value=1,
-            max_value=1000,
-            value=config.GENERATION_NUM,
-            step=1
-        )
         
-        sample_min = st.number_input(
-            "最少示例数量",
-            min_value=1,
-            max_value=10,
-            value=config.SAMPLE_MIN,
-            step=1
-        )
+        # SFT转DPO模式不需要生成样本数量（转换现有数据）
+        if st.session_state.dataset_type != "SFT转DPO":
+            num_samples = st.number_input(
+                "生成样本数量",
+                min_value=1,
+                max_value=1000,
+                value=config.GENERATION_NUM,
+                step=1
+            )
+        else:
+            num_samples = 0  # SFT转DPO不需要此参数
+            st.info("💡 SFT转DPO模式：将转换所有输入数据，无需设置生成数量")
         
-        sample_max = st.number_input(
-            "最多示例数量",
-            min_value=sample_min,
-            max_value=20,
-            value=config.SAMPLE_MAX,
-            step=1
-        )
+        # SFT转DPO模式不需要示例数量设置（转换不需要示例）
+        if st.session_state.dataset_type != "SFT转DPO":
+            sample_min = st.number_input(
+                "最少示例数量",
+                min_value=1,
+                max_value=10,
+                value=config.SAMPLE_MIN,
+                step=1
+            )
+            
+            sample_max = st.number_input(
+                "最多示例数量",
+                min_value=sample_min,
+                max_value=20,
+                value=config.SAMPLE_MAX,
+                step=1
+            )
+        else:
+            # SFT转DPO模式使用默认值
+            sample_min = config.SAMPLE_MIN
+            sample_max = config.SAMPLE_MAX
         
         # 其他选项
         st.markdown("### 🔧 其他选项")
         enable_analysis = st.checkbox("生成后分析数据集", value=True)
         enable_split = st.checkbox("分割训练集和验证集", value=False)
+        
+        # 内存优化和断点续传选项
+        st.markdown("#### 🚀 性能优化")
+        
+        if st.session_state.dataset_type == "SFT转DPO":
+            # SFT转DPO专用优化选项
+            enable_sft_to_dpo_optimization = st.checkbox(
+                "启用SFT转DPO优化", 
+                value=True, 
+                help="使用优化版本的转换器，支持断点续传和内存优化"
+            )
+            
+            if enable_sft_to_dpo_optimization:
+                enable_resume = st.checkbox(
+                    "启用断点续传", 
+                    value=True, 
+                    help="支持转换过程中断后的恢复功能"
+                )
+                
+                save_interval = st.number_input(
+                    "保存间隔",
+                    min_value=1,
+                    max_value=50,
+                    value=5,
+                    step=1,
+                    help="每转换多少个样本保存一次检查点"
+                )
+            else:
+                enable_resume = False
+                save_interval = 10
+            
+            # SFT转DPO不需要内存优化选项（转换过程本身就是内存友好的）
+            enable_memory_optimization = False
+        else:
+            # SFT和DPO模式的优化选项
+            enable_memory_optimization = st.checkbox(
+                "启用内存优化", 
+                value=True, 
+                help="实时存储生成结果到文件，避免内存溢出"
+            )
+            enable_resume = st.checkbox(
+                "启用断点续传", 
+                value=True, 
+                help="支持生成过程中断后的恢复功能"
+            )
+            enable_sft_to_dpo_optimization = False
+            save_interval = 10
         
         if enable_split:
             train_ratio = st.slider(
@@ -910,13 +1156,25 @@ def show_dataset_generation():
                         )
                     else:  # SFT转DPO
                         prompts = prompt_manager.get_sft_to_dpo_prompts()
-                        data_generator = SFTToDPOConverter(
-                            model_caller=model_caller,
-                            data_loader=data_loader,
-                            rejected_prompt=prompts['rejected'],
-                            sample_min=sample_min,
-                            sample_max=sample_max
-                        )
+                        
+                        # 根据用户选择决定使用哪个转换器
+                        if enable_sft_to_dpo_optimization:
+                            data_generator = OptimizedSFTToDPOConverter(
+                                model_caller=model_caller,
+                                data_loader=data_loader,
+                                rejected_prompt=prompts['rejected'],
+                                checkpoint_dir=os.path.join(output_folder, "checkpoints"),
+                                sample_min=sample_min,
+                                sample_max=sample_max
+                            )
+                        else:
+                            data_generator = SFTToDPOConverter(
+                                model_caller=model_caller,
+                                data_loader=data_loader,
+                                rejected_prompt=prompts['rejected'],
+                                sample_min=sample_min,
+                                sample_max=sample_max
+                            )
                 
                 # 生成数据集
                 st.markdown("### 📈 生成进度")
@@ -953,29 +1211,67 @@ def show_dataset_generation():
                 with st.spinner("🔄 正在生成数据集..."):
                     if st.session_state.dataset_type == "SFT转DPO":
                         # SFT转DPO使用转换方法
-                        if os.path.isdir(selected_dataset) and folder_mode == "separate":
-                            result = data_generator.convert_folder_sft_to_dpo(
-                                sft_folder_path=selected_dataset,
-                                output_folder=output_folder,
-                                concurrency=concurrency
+                        if enable_sft_to_dpo_optimization:
+                            # 使用优化版本的转换器
+                            if os.path.isdir(selected_dataset) and folder_mode == "separate":
+                                result = data_generator.convert_folder_sft_to_dpo_optimized(
+                                    sft_folder_path=selected_dataset,
+                                    output_folder=output_folder,
+                                    concurrency=concurrency,
+                                    resume_conversion=enable_resume,
+                                    save_interval=save_interval
+                                )
+                            else:
+                                result = data_generator.convert_sft_dataset_to_dpo_optimized(
+                                    sft_file_path=selected_dataset,
+                                    output_file=output_file,
+                                    concurrency=concurrency,
+                                    resume_conversion=enable_resume,
+                                    save_interval=save_interval
+                                )
+                        else:
+                            # 使用原有的转换方法
+                            if os.path.isdir(selected_dataset) and folder_mode == "separate":
+                                result = data_generator.convert_folder_sft_to_dpo(
+                                    sft_folder_path=selected_dataset,
+                                    output_folder=output_folder,
+                                    concurrency=concurrency
+                                )
+                            else:
+                                result = data_generator.convert_sft_dataset_to_dpo(
+                                    sft_file_path=selected_dataset,
+                                    output_file=output_file,
+                                    concurrency=concurrency
+                                )
+                    else:
+                        # 根据用户选择决定是否使用优化的生成器
+                        if enable_memory_optimization or enable_resume:
+                            # 使用优化的生成器（支持内存优化和断点续传）
+                            optimized_generator = OptimizedDataGenerator(
+                                data_generator=data_generator,
+                                checkpoint_dir=os.path.join(output_folder, "checkpoints")
+                            )
+                            result = optimized_generator.generate_dataset_optimized(
+                                num_samples=num_samples,
+                                output_file=output_file,
+                                mode=mode,
+                                fixed_instruction=fixed_instruction,
+                                folder_mode=folder_mode,
+                                custom_filenames=custom_filenames if folder_mode == "separate" else None,
+                                concurrency=concurrency,
+                                resume_generation=enable_resume
                             )
                         else:
-                            result = data_generator.convert_sft_dataset_to_dpo(
-                                sft_file_path=selected_dataset,
+                            # 使用原有的生成方法
+                            result = data_generator.generate_dataset(
+                                num_samples=num_samples,
                                 output_file=output_file,
+                                mode=mode,
+                                fixed_instruction=fixed_instruction,
+                                folder_mode=folder_mode,
+                                custom_filenames=custom_filenames if folder_mode == "separate" else None,
                                 concurrency=concurrency
                             )
-                    else:
-                        # SFT和DPO使用生成方法
-                        result = data_generator.generate_dataset(
-                            num_samples=num_samples,
-                            output_file=output_file,
-                            mode=mode,
-                            fixed_instruction=fixed_instruction,
-                            folder_mode=folder_mode,
-                            custom_filenames=custom_filenames if folder_mode == "separate" else None,
-                            concurrency=concurrency
-                        )
                 
                 # 处理不同的返回格式
                 if isinstance(result, dict) and 'all_data' in result:

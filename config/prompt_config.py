@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 """
 提示词配置管理模块
-用于管理用户自定义的提示词模板
+用于管理用户自定义的提示词模板，支持版本管理
 """
 import json
 import os
-from typing import Dict, List, Optional
+import time
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 
 # 提示词配置文件路径
 PROMPT_CONFIG_FILE = os.path.join(Path(__file__).resolve().parent, "prompt_configs.json")
+PROMPT_VERSIONS_FILE = os.path.join(Path(__file__).resolve().parent, "prompt_versions.json")
 
 # 默认提示词模板
 DEFAULT_PROMPTS = {
@@ -136,11 +139,13 @@ DEFAULT_PROMPTS = {
 }
 
 class PromptConfigManager:
-    """提示词配置管理器"""
+    """提示词配置管理器，支持版本管理"""
     
     def __init__(self):
         self.config_file = PROMPT_CONFIG_FILE
+        self.versions_file = PROMPT_VERSIONS_FILE
         self.prompts = self._load_prompts()
+        self.versions = self._load_versions()
     
     def _load_prompts(self) -> Dict:
         """加载提示词配置"""
@@ -191,6 +196,16 @@ class PromptConfigManager:
             }
         }
     
+    def _load_versions(self) -> Dict:
+        """加载版本历史"""
+        if os.path.exists(self.versions_file):
+            try:
+                with open(self.versions_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+        return {}
+    
     def _save_prompts(self):
         """保存提示词配置"""
         try:
@@ -199,6 +214,40 @@ class PromptConfigManager:
         except Exception as e:
             # 保存提示词配置失败
             pass
+    
+    def _save_versions(self):
+        """保存版本历史"""
+        try:
+            with open(self.versions_file, 'w', encoding='utf-8') as f:
+                json.dump(self.versions, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    
+    def _create_version(self, prompt_type: str, prompt_id: str, template: str, description: str = "") -> str:
+        """创建新版本"""
+        timestamp = int(time.time())
+        version_id = f"{timestamp}"
+        
+        if prompt_type not in self.versions:
+            self.versions[prompt_type] = {}
+        if prompt_id not in self.versions[prompt_type]:
+            self.versions[prompt_type][prompt_id] = []
+        
+        version_info = {
+            'version_id': version_id,
+            'timestamp': timestamp,
+            'datetime': datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+            'template': template,
+            'description': description
+        }
+        
+        self.versions[prompt_type][prompt_id].append(version_info)
+        # 保持最多20个版本
+        if len(self.versions[prompt_type][prompt_id]) > 20:
+            self.versions[prompt_type][prompt_id] = self.versions[prompt_type][prompt_id][-20:]
+        
+        self._save_versions()
+        return version_id
     
     def get_prompt_types(self) -> List[str]:
         """获取所有提示词类型"""
@@ -241,10 +290,16 @@ class PromptConfigManager:
             # 添加提示词失败
             return False
     
-    def update_prompt(self, prompt_type: str, prompt_id: str, name: str, description: str, template: str) -> bool:
+    def update_prompt(self, prompt_type: str, prompt_id: str, name: str, description: str, template: str, save_version: bool = True) -> bool:
         """更新提示词"""
         try:
             if prompt_type in self.prompts and prompt_id in self.prompts[prompt_type]:
+                # 保存旧版本
+                if save_version:
+                    old_template = self.prompts[prompt_type][prompt_id].get('template', '')
+                    if old_template != template:
+                        self._create_version(prompt_type, prompt_id, old_template, f"更新前版本 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                
                 self.prompts[prompt_type][prompt_id] = {
                     'name': name,
                     'description': description,
@@ -273,6 +328,97 @@ class PromptConfigManager:
         """获取提示词详细信息"""
         prompts = self.get_prompts_by_type(prompt_type)
         return prompts.get(prompt_id)
+    
+    # 版本管理方法
+    def get_prompt_versions(self, prompt_type: str, prompt_id: str) -> List[Dict]:
+        """获取提示词的版本历史"""
+        if prompt_type in self.versions and prompt_id in self.versions[prompt_type]:
+            return sorted(self.versions[prompt_type][prompt_id], key=lambda x: x['timestamp'], reverse=True)
+        return []
+    
+    def restore_prompt_version(self, prompt_type: str, prompt_id: str, version_id: str) -> bool:
+        """恢复到指定版本"""
+        try:
+            versions = self.get_prompt_versions(prompt_type, prompt_id)
+            target_version = None
+            for version in versions:
+                if version['version_id'] == version_id:
+                    target_version = version
+                    break
+            
+            if target_version and prompt_type in self.prompts and prompt_id in self.prompts[prompt_type]:
+                # 保存当前版本
+                current_template = self.prompts[prompt_type][prompt_id].get('template', '')
+                self._create_version(prompt_type, prompt_id, current_template, f"恢复前版本 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                # 恢复到目标版本
+                self.prompts[prompt_type][prompt_id]['template'] = target_version['template']
+                self._save_prompts()
+                return True
+            return False
+        except Exception:
+            return False
+    
+    def delete_prompt_version(self, prompt_type: str, prompt_id: str, version_id: str) -> bool:
+        """删除指定版本"""
+        try:
+            if prompt_type in self.versions and prompt_id in self.versions[prompt_type]:
+                self.versions[prompt_type][prompt_id] = [
+                    v for v in self.versions[prompt_type][prompt_id] 
+                    if v['version_id'] != version_id
+                ]
+                self._save_versions()
+                return True
+            return False
+        except Exception:
+            return False
+    
+    def export_prompt_template(self, prompt_type: str, prompt_id: str) -> Optional[Dict]:
+        """导出提示词模板（包含版本信息）"""
+        try:
+            prompt_info = self.get_prompt_info(prompt_type, prompt_id)
+            versions = self.get_prompt_versions(prompt_type, prompt_id)
+            
+            if prompt_info:
+                return {
+                    'prompt_type': prompt_type,
+                    'prompt_id': prompt_id,
+                    'current': prompt_info,
+                    'versions': versions,
+                    'export_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+            return None
+        except Exception:
+            return None
+    
+    def import_prompt_template(self, template_data: Dict) -> bool:
+        """导入提示词模板"""
+        try:
+            prompt_type = template_data.get('prompt_type')
+            prompt_id = template_data.get('prompt_id')
+            current = template_data.get('current', {})
+            versions = template_data.get('versions', [])
+            
+            if not prompt_type or not prompt_id or not current:
+                return False
+            
+            # 导入当前版本
+            if prompt_type not in self.prompts:
+                self.prompts[prompt_type] = {}
+            
+            self.prompts[prompt_type][prompt_id] = current
+            
+            # 导入版本历史
+            if versions:
+                if prompt_type not in self.versions:
+                    self.versions[prompt_type] = {}
+                self.versions[prompt_type][prompt_id] = versions
+            
+            self._save_prompts()
+            self._save_versions()
+            return True
+        except Exception:
+            return False
     
     # SFT提示词管理方法
     def get_sft_prompts(self) -> Dict[str, str]:
